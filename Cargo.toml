@@ -1,6 +1,6 @@
 [package]
 name = "ap33772s-driver"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A platform-agnostic driver for the AP33772S USB-PD Sink Controller"
 repository = "https://github.com/hnz1102/ap33772s-driver.git"

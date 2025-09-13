@@ -22,8 +22,13 @@ The AP33772S supports negotiation for the following standard voltages:
 - 9V
 - 12V
 - 15V
-- 20V (and higher with EPR)
+- 20V
+- 28V (EPR)
+- 36V (EPR)
+- 40V (EPR)
+- 48V (EPR)
 
+The driver supports both Standard Power Range (SPR) and Extended Power Range (EPR) modes.
 Custom voltages and currents are also supported through programmable PDOs.
 
 ## Quick Start

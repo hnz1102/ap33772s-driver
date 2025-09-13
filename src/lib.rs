@@ -17,6 +17,7 @@
 //! - Programmable Power Supply (PPS) and Adjustable Voltage Supply (AVS) support
 
 use embedded_hal::i2c::I2c;
+use embedded_hal::delay::DelayNs;
 use heapless::Vec;
 
 /// AP33772S I2C slave address
@@ -128,6 +129,14 @@ pub enum PDVoltage {
     V15 = 3,
     /// 20V output
     V20 = 4,
+    /// 28V output (EPR)
+    V28 = 5,
+    /// 36V output (EPR)
+    V36 = 6,
+    /// 40V output (EPR)
+    V40 = 7,
+    /// 48V output (EPR)
+    V48 = 8,
     /// Custom voltage
     Custom = 0xFF,
 }
@@ -245,9 +254,10 @@ impl AP33772S {
     }
 
     /// Request specific voltage from the USB PD source
-    pub fn request_voltage<I2C, E>(&self, i2c: &mut I2C, voltage: PDVoltage) -> Result<(), Error<E>>
+    pub fn request_voltage<I2C, D, E>(&self, i2c: &mut I2C, delay: &mut D, voltage: PDVoltage) -> Result<(), Error<E>>
     where
         I2C: I2c<Error = E>,
+        D: DelayNs,
     {
         if !self.initialized {
             return Err(Error::NotInitialized);
@@ -259,27 +269,95 @@ impl AP33772S {
             PDVoltage::V12 => 12000,
             PDVoltage::V15 => 15000,
             PDVoltage::V20 => 20000,
+            PDVoltage::V28 => 28000,
+            PDVoltage::V36 => 36000,
+            PDVoltage::V40 => 40000,
+            PDVoltage::V48 => 48000,
             PDVoltage::Custom => 0,
         };
 
         let mut pdo_index = 0;
+        let mut best_pdo: Option<&PDOInfo> = None;
+        let mut best_diff = u32::MAX;
+        
+        // Find the best matching PDO for the requested voltage
         for pdo in &self.pdo_list {
-            if pdo.voltage_mv == voltage_mv {
-                pdo_index = pdo.pdo_index;
-                break;
+            if pdo.voltage_mv >= voltage_mv {
+                let diff = (pdo.voltage_mv as u32) - (voltage_mv as u32);
+                if diff == 0 {
+                    // Exact match found
+                    best_pdo = Some(pdo);
+                    pdo_index = pdo.pdo_index;
+                    break;
+                } else if diff < best_diff {
+                    // Better match than current best
+                    best_diff = diff;
+                    best_pdo = Some(pdo);
+                    pdo_index = pdo.pdo_index;
+                }
             }
         }
 
         if pdo_index == 0 {
             return Err(Error::InvalidParameter);
         }
+        
+        if let Some(_pdo) = best_pdo {
+            // Log the PDO selection for debugging
+            // Note: We can't use log macros in no_std, but this info is useful for wrapper implementations
+        }
 
         // Build request message
-        let mut request_msg = (pdo_index as u16) << 12;
-        request_msg |= (REQMSG_MAX_VOLTAGE as u16) | ((REQMSG_MAX_CURRENT as u16) << 8);
+        // Format: [15:12] PDO index, [11:8] Max Current, [7:0] Max Voltage
+        let mut request_msg = (pdo_index as u16 & 0x0F) << 12;
+        request_msg |= (REQMSG_MAX_CURRENT as u16 & 0x0F) << 8;
+        request_msg |= REQMSG_MAX_VOLTAGE as u16 & 0xFF;
         
         self.write_word(i2c, REG_PD_REQMSG, request_msg)?;
-        self.wait_for_negotiation(i2c)
+        self.wait_for_negotiation(i2c, delay)
+    }
+
+    /// Request custom voltage and current from the USB PD source
+    /// This provides more flexible voltage selection by directly matching available PDOs
+    pub fn request_custom_voltage<I2C, D, E>(&self, i2c: &mut I2C, delay: &mut D, voltage_mv: u16, _current_ma: u16) -> Result<(), Error<E>>
+    where
+        I2C: I2c<Error = E>,
+        D: DelayNs,
+    {
+        if !self.initialized {
+            return Err(Error::NotInitialized);
+        }
+
+        // Find best matching PDO
+        let mut best_pdo: Option<&PDOInfo> = None;
+        let mut best_diff = u32::MAX;
+        
+        for pdo in &self.pdo_list {
+            if pdo.voltage_mv >= voltage_mv {
+                let diff = (pdo.voltage_mv as u32) - (voltage_mv as u32);
+                if diff == 0 {
+                    // Exact match found
+                    best_pdo = Some(pdo);
+                    break;
+                } else if diff < best_diff {
+                    // Better match than current best
+                    best_diff = diff;
+                    best_pdo = Some(pdo);
+                }
+            }
+        }
+        
+        if let Some(pdo) = best_pdo {
+            // Build request message using the best matching PDO
+            let mut request_msg = (pdo.pdo_index as u16 & 0x0F) << 12;
+            request_msg |= (REQMSG_MAX_CURRENT as u16 & 0x0F) << 8;
+            request_msg |= REQMSG_MAX_VOLTAGE as u16 & 0xFF;
+            
+            self.write_word(i2c, REG_PD_REQMSG, request_msg)?;
+            self.wait_for_negotiation(i2c, delay)
+        } else {
+            Err(Error::InvalidParameter)
+        }
     }
 
     /// Read the current status of the PD controller
@@ -420,11 +498,12 @@ impl AP33772S {
     // Private methods
 
     /// Wait for PD negotiation to complete
-    fn wait_for_negotiation<I2C, E>(&self, i2c: &mut I2C) -> Result<(), Error<E>>
+    fn wait_for_negotiation<I2C, D, E>(&self, i2c: &mut I2C, delay: &mut D) -> Result<(), Error<E>>
     where
         I2C: I2c<Error = E>,
+        D: DelayNs,
     {
-        for _ in 0..20 {
+        for _ in 0..50 { // Increased iterations for longer timeout
             let result = self.read_register(i2c, REG_PD_MSGRLT)?;
             let result_code = result & MSGRLT_MASK;
             
@@ -440,6 +519,9 @@ impl AP33772S {
             } else if result_code != 0 {
                 return Err(Error::NegotiationFailed);
             }
+            
+            // Wait 50ms between checks
+            delay.delay_ms(50);
         }
         
         Err(Error::Timeout)
