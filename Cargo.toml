@@ -1,0 +1,23 @@
+[package]
+name = "ap33772s-driver"
+version = "0.1.0"
+edition = "2021"
+description = "A platform-agnostic driver for the AP33772S USB-PD Sink Controller"
+repository = "https://github.com/hnz1102/ap33772s-driver.git"
+license = "MIT"
+keywords = ["embedded", "usb-pd", "ap33772s", "sink", "power"]
+categories = ["embedded", "hardware-support", "no-std"]
+authors = ["Hiroshi Nakajima"]
+
+[dependencies]
+embedded-hal = "1.0"
+nb = "1.0"
+heapless = "0.8"
+
+[features]
+default = []
+std = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
