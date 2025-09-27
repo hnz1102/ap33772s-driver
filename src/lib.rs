@@ -319,6 +319,9 @@ impl AP33772S {
 
     /// Request custom voltage and current from the USB PD source
     /// This provides more flexible voltage selection by directly matching available PDOs
+    /// Priority: 1. Variable PDO that can provide exact voltage
+    ///          2. Variable PDO with smallest difference
+    ///          3. Fixed PDO with smallest difference (voltage >= requested)
     pub fn request_custom_voltage<I2C, D, E>(&self, i2c: &mut I2C, delay: &mut D, voltage_mv: u16, _current_ma: u16) -> Result<(), Error<E>>
     where
         I2C: I2c<Error = E>,
@@ -328,30 +331,101 @@ impl AP33772S {
             return Err(Error::NotInitialized);
         }
 
-        // Find best matching PDO
+        // Find best matching PDO with improved selection logic
+        // Priority: 1. Variable PDO that can provide exact voltage
+        //          2. Variable PDO with smallest difference
+        //          3. Fixed PDO with smallest difference (voltage >= requested)
         let mut best_pdo: Option<&PDOInfo> = None;
         let mut best_diff = u32::MAX;
+        let mut best_is_variable = false;
         
         for pdo in &self.pdo_list {
-            if pdo.voltage_mv >= voltage_mv {
-                let diff = (pdo.voltage_mv as u32) - (voltage_mv as u32);
-                if diff == 0 {
-                    // Exact match found
-                    best_pdo = Some(pdo);
-                    break;
-                } else if diff < best_diff {
-                    // Better match than current best
+            let is_variable = !pdo.is_fixed;
+            let can_provide_voltage = if is_variable {
+                // For variable PDOs, assume they can provide any voltage up to their maximum
+                pdo.voltage_mv >= voltage_mv
+            } else {
+                // For fixed PDOs, only consider if their voltage is >= requested voltage
+                pdo.voltage_mv >= voltage_mv
+            };
+            
+            if can_provide_voltage {
+                let diff = if is_variable && pdo.voltage_mv >= voltage_mv {
+                    // For variable PDOs that can provide the exact voltage, difference is 0
+                    0u32
+                } else {
+                    // For fixed PDOs or when variable PDO max is lower, calculate actual difference
+                    (pdo.voltage_mv as u32).saturating_sub(voltage_mv as u32)
+                };
+                
+                // Selection criteria:
+                // 1. Prefer variable PDOs over fixed PDOs
+                // 2. Among same type, prefer smaller voltage difference
+                // 3. If same difference, prefer higher power capability
+                let should_select = match (best_pdo, is_variable, best_is_variable) {
+                    (None, _, _) => true, // First candidate
+                    (Some(_), true, false) => true, // Variable PDO beats Fixed PDO
+                    (Some(_), false, true) => false, // Fixed PDO loses to Variable PDO
+                    (Some(current_best), _, _) => {
+                        // Same type comparison
+                        if diff < best_diff {
+                            true // Better voltage match
+                        } else if diff == best_diff {
+                            // Same voltage difference, prefer higher power
+                            pdo.max_power_mw > current_best.max_power_mw
+                        } else {
+                            false // Worse voltage match
+                        }
+                    }
+                };
+                
+                if should_select {
                     best_diff = diff;
                     best_pdo = Some(pdo);
+                    best_is_variable = is_variable;
                 }
             }
         }
         
         if let Some(pdo) = best_pdo {
             // Build request message using the best matching PDO
+            // For variable PDOs, we can request the exact voltage through the PDO negotiation
+            // For fixed PDOs, we get their fixed voltage
             let mut request_msg = (pdo.pdo_index as u16 & 0x0F) << 12;
             request_msg |= (REQMSG_MAX_CURRENT as u16 & 0x0F) << 8;
-            request_msg |= REQMSG_MAX_VOLTAGE as u16 & 0xFF;
+            
+            if !pdo.is_fixed {
+                // For Variable PDO, encode the requested voltage in the message
+                // The voltage is encoded based on the PDO type (SPR or EPR)
+                // Output Voltage Select
+                // If select SRC_SPR_PDO (PDO1 ~ PDO7):
+                // Output Voltage in 100mV units for SPR PPS APDO selected
+                // If select SRC_EPR_PDO (PDO8 ~ PDO13):
+                // Output Voltage in 200mV units for EPR PPS APDO selected
+                let voltage_units = match pdo.pdo_index {
+                    1..=7 => {
+                        // SPR PPS APDO, use 100mV units
+                        let voltage_units = (voltage_mv / 100).min(0xFF as u16);
+                        request_msg |= voltage_units & 0xFF;
+                        voltage_units
+                    },
+                    8..=13 => {
+                        // EPR PPS APDO, use 200mV units
+                        let voltage_units = (voltage_mv / 200).min(0xFF as u16);
+                        request_msg |= voltage_units & 0xFF;
+                        voltage_units
+                    },
+                    _ => {
+                        // Should not happen, but fallback to max voltage encoding
+                        request_msg |= REQMSG_MAX_VOLTAGE as u16 & 0xFF;
+                        REQMSG_MAX_VOLTAGE as u16
+                    }
+                };
+                request_msg |= voltage_units & 0xFF;
+            } else {
+                // For Fixed PDO, use the standard max voltage encoding
+                request_msg |= REQMSG_MAX_VOLTAGE as u16 & 0xFF;
+            }
             
             self.write_word(i2c, REG_PD_REQMSG, request_msg)?;
             self.wait_for_negotiation(i2c, delay)

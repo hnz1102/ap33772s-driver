@@ -37,14 +37,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ap33772s-driver = "0.1"
+ap33772s-driver = "0.1.3"
 ```
 
 For `std` environments, enable the `std` feature:
 
 ```toml
 [dependencies]
-ap33772s-driver = { version = "0.1", features = ["std"] }
+ap33772s-driver = { version = "0.1.3", features = ["std"] }
 ```
 
 ## Example Usage
@@ -203,6 +203,37 @@ pd_controller.hard_reset(&mut i2c)?;
 - **Supply Voltage**: 3.3V or 5V
 - **Temperature Range**: -40°C to +85°C
 - **USB-PD Compliance**: USB-PD 3.1 compatible
+
+## Changelog
+
+### Version 0.1.3
+
+#### New Features
+- **Enhanced Variable PDO Support**: Improved `request_custom_voltage` method to prioritize Variable Power Data Objects (APDOs) over Fixed PDOs when available
+- **Smart PDO Selection**: Added intelligent PDO selection algorithm with the following priority:
+  1. Variable PDO that can provide exact requested voltage
+  2. Variable PDO with smallest voltage difference
+  3. Fixed PDO with smallest voltage difference (voltage >= requested)
+- **Custom Voltage Encoding**: Variable PDOs now support precise voltage requests through proper message encoding (50mV resolution)
+
+#### Improvements
+- **Better Power Matching**: When multiple PDOs have the same voltage difference, the driver now selects the one with higher power capability
+- **Enhanced Documentation**: Added detailed comments explaining the PDO selection logic and priority system
+- **Voltage Request Accuracy**: For Variable PDOs, the driver can now request voltages closer to the exact requirement rather than defaulting to maximum PDO voltage
+
+#### Technical Details
+- Variable PDOs (APDO - Adjustable Power Data Objects) are now properly detected using the `is_fixed` flag
+- Request messages for Variable PDOs include the specific voltage requirement encoded in 50mV units
+- Fixed PDOs continue to use standard maximum voltage encoding for compatibility
+
+#### Example Usage
+```rust
+// The driver will now automatically select the best PDO type
+// If a Variable PDO can provide 15V, it will be chosen over a 20V Fixed PDO
+pd_controller.request_custom_voltage(&mut i2c, &mut delay, 15000, 2000)?; // 15V, 2A
+```
+
+This update significantly improves power efficiency and voltage accuracy when working with modern USB-PD sources that support Variable PDOs.
 
 ## License
 
