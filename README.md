@@ -214,7 +214,7 @@ pd_controller.hard_reset(&mut i2c)?;
   1. Variable PDO that can provide exact requested voltage
   2. Variable PDO with smallest voltage difference
   3. Fixed PDO with smallest voltage difference (voltage >= requested)
-- **Custom Voltage Encoding**: Variable PDOs now support precise voltage requests through proper message encoding (50mV resolution)
+- **Custom Voltage Encoding**: Variable PDOs now support precise voltage requests through proper message encoding (100mV or 200mV resolution)
 
 #### Improvements
 - **Better Power Matching**: When multiple PDOs have the same voltage difference, the driver now selects the one with higher power capability
