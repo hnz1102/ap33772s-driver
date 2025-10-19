@@ -23,13 +23,12 @@ The AP33772S supports negotiation for the following standard voltages:
 - 12V
 - 15V
 - 20V
-- 28V (EPR)
-- 36V (EPR)
-- 40V (EPR)
-- 48V (EPR)
+- 28V (EPR) - Maximum supported by AP33772S
+
+**Note**: Previous versions incorrectly indicated support for 36V and 48V. The AP33772S hardware actually supports a maximum of 28V.
 
 The driver supports both Standard Power Range (SPR) and Extended Power Range (EPR) modes.
-Custom voltages and currents are also supported through programmable PDOs.
+Custom voltages and currents are also supported through programmable PDOs up to the 28V maximum.
 
 ## Quick Start
 
@@ -37,14 +36,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ap33772s-driver = "0.1.3"
+ap33772s-driver = "0.1.4"
 ```
 
 For `std` environments, enable the `std` feature:
 
 ```toml
 [dependencies]
-ap33772s-driver = { version = "0.1.3", features = ["std"] }
+ap33772s-driver = { version = "0.1.4", features = ["std"] }
 ```
 
 ## Example Usage
@@ -205,6 +204,35 @@ pd_controller.hard_reset(&mut i2c)?;
 - **USB-PD Compliance**: USB-PD 3.1 compatible
 
 ## Changelog
+
+### Version 0.1.4
+
+#### Breaking Changes
+- **Corrected Maximum Voltage Support**: Removed support for voltages above 28V to accurately reflect AP33772S hardware limitations
+- **Updated PDVoltage Enum**: Removed `V36`, `V40`, and `V48` variants from the `PDVoltage` enum
+- **Hardware Specification Compliance**: Driver now correctly represents that AP33772S supports a maximum of 28V, not 48V as previously documented
+
+#### Changes
+- **PDVoltage::V36 Removed**: The 36V option has been removed from the voltage enumeration
+- **PDVoltage::V40 Removed**: The 40V option has been removed from the voltage enumeration  
+- **PDVoltage::V48 Removed**: The 48V option has been removed from the voltage enumeration
+- **Updated Documentation**: All references to voltages above 28V have been corrected
+- **Voltage Mapping Updated**: Request voltage mapping now correctly handles only supported voltages
+
+#### Migration Guide
+If your code was using unsupported voltage options:
+```rust
+// Before (will no longer compile)
+pd_controller.request_voltage(&mut i2c, &mut delay, PDVoltage::V36)?;
+pd_controller.request_voltage(&mut i2c, &mut delay, PDVoltage::V48)?;
+
+// After (use maximum supported voltage or custom voltage)
+pd_controller.request_voltage(&mut i2c, &mut delay, PDVoltage::V28)?;
+// Or use custom voltage up to 28V
+pd_controller.request_custom_voltage(&mut i2c, &mut delay, 28000, 3000)?;
+```
+
+This update ensures the driver accurately represents the actual hardware capabilities of the AP33772S controller and prevents attempts to negotiate unsupported voltages.
 
 ### Version 0.1.3
 

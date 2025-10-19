@@ -129,14 +129,8 @@ pub enum PDVoltage {
     V15 = 3,
     /// 20V output
     V20 = 4,
-    /// 28V output (EPR)
+    /// 28V output (EPR) - Maximum supported by AP33772S
     V28 = 5,
-    /// 36V output (EPR)
-    V36 = 6,
-    /// 40V output (EPR)
-    V40 = 7,
-    /// 48V output (EPR)
-    V48 = 8,
     /// Custom voltage
     Custom = 0xFF,
 }
@@ -269,10 +263,7 @@ impl AP33772S {
             PDVoltage::V12 => 12000,
             PDVoltage::V15 => 15000,
             PDVoltage::V20 => 20000,
-            PDVoltage::V28 => 28000,
-            PDVoltage::V36 => 36000,
-            PDVoltage::V40 => 40000,
-            PDVoltage::V48 => 48000,
+            PDVoltage::V28 => 28000, // Maximum supported by AP33772S
             PDVoltage::Custom => 0,
         };
 
